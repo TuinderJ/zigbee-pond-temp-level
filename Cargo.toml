@@ -1,11 +1,11 @@
 [package]
-name = "my-esp-project"
+name = "pond-temp-level-zigbee"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 
 [[bin]]
-name = "my-esp-project"
+name = "pond-temp-level-zigbee"
 path = "./src/bin/main.rs"
 
 [dependencies]
