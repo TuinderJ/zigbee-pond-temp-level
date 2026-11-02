@@ -1,8 +1,10 @@
+use embassy_time::{Duration, with_timeout};
 use esp_hal::{
     delay::Delay,
     gpio::{Input, InputConfig, Level, Output, OutputConfig},
     peripherals::{GPIO3, GPIO4},
 };
+use esp_println::println;
 
 pub struct DistanceSensor {
     trigger: Output<'static>,
@@ -17,17 +19,17 @@ impl DistanceSensor {
         Self { trigger, echo }
     }
 
-    pub fn read(&mut self, delay: &mut Delay) -> Option<u16> {
+    pub async fn read(&mut self, delay: &mut Delay) -> Option<u16> {
         let mut samples = [0u16; 5];
         let mut valid = 0usize;
 
         for sample in samples.iter_mut() {
-            if let Some(cm) = self.read_single(delay) {
+            if let Some(cm) = self.read_single(delay).await {
                 *sample = cm;
                 valid += 1;
             }
             // JSN-SR04T needs about 60ms between measurements
-            delay.delay_millis(60);
+            delay.delay_millis(80);
         }
 
         if valid < 3 {
@@ -39,37 +41,33 @@ impl DistanceSensor {
         Some(samples[valid / 2])
     }
 
-    fn read_single(&mut self, delay: &mut Delay) -> Option<u16> {
+    async fn read_single(&mut self, delay: &mut Delay) -> Option<u16> {
         // Send a 10µs trigger pulse
         self.trigger.set_high();
         delay.delay_micros(10);
         self.trigger.set_low();
 
         // Wait for echo to go high
-        let mut timeout = 0u32;
-        while self.echo.is_low() {
-            timeout += 1;
-            if timeout > 30_000 {
-                // Sensor is not responding
-                return None;
-            }
-        }
+        with_timeout(Duration::from_micros(30_000), self.echo.wait_for_high())
+            .await
+            .ok()?;
 
         // Time how long echo stays high
-        let mut pulse_us = 0u32;
-        while self.echo.is_high() {
-            pulse_us += 1;
-            delay.delay_micros(1);
-            if pulse_us > 38_000 {
-                // Out of range
-                return None;
+        let pulse_us = critical_section::with(|_| {
+            let start = esp_hal::time::Instant::now();
+            while self.echo.is_high() {
+                if start.elapsed().as_micros() > 38_000 {
+                    return None;
+                }
             }
-        }
+            Some(start.elapsed().as_micros())
+        })?;
 
         let cm = (pulse_us / 58) as u16;
 
         // JSN-SR04T minimum reliable range is 20cm
         if cm < 20 {
+            println!("Distance is below valid range...");
             return None;
         }
 
