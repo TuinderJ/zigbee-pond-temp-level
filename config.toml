@@ -1,0 +1,2 @@
+[target.'cfg(any(target_arch = "riscv32", target_arch = "xtensa"))']
+runner = "cargo espflash flash ../target/riscv32imac-unknown-none-elf/release/pond-temp-level-zigbee --monitor"
